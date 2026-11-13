@@ -3,7 +3,7 @@ import 'server-only';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { TokenSet } from '@/lib/jubelio/oauth';
+import type { TokenSet } from '@/lib/jubelio';
 
 export type Install = {
   merchantId: string;

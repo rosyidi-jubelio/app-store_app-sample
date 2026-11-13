@@ -9,11 +9,18 @@ export class JubelioApiError extends Error {
     this.name = 'JubelioApiError';
   }
 
-  get isUnauthorized() {
-    return this.status === 401;
-  }
-
   get isMissingScope() {
     return this.code === 'endpoint_not_authorized';
+  }
+}
+
+export class OAuthError extends Error {
+  constructor(
+    readonly code: string,
+    readonly description: string,
+    readonly status: number,
+  ) {
+    super(`${code}: ${description}`);
+    this.name = 'OAuthError';
   }
 }

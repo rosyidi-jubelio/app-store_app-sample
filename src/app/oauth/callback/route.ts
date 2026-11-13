@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import { saveTokens } from '@/lib/install-store';
 import { OAuthError } from '@/lib/jubelio';
-import { oauth } from '@/lib/jubelio-app';
+import { newJubelioApi } from '@/lib/jubelio-app';
 import { sessionCookie } from '@/lib/session';
 
 function redirectHome(request: NextRequest, error?: string) {
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const install = await saveTokens(await oauth().exchangeCode(code));
+    const install = await saveTokens(await newJubelioApi().getToken(code));
     const res = redirectHome(request);
     res.cookies.set(sessionCookie(install.merchantId));
     return res;

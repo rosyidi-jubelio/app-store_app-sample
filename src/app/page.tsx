@@ -79,12 +79,12 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
     );
   }
 
-  const jubelio = jubelioFor(merchantId);
+  const jubelio = await jubelioFor(merchantId);
 
   let merchant: MerchantProfile | null = null;
   let merchantError: string | null = null;
   try {
-    merchant = await jubelio.merchant.get();
+    merchant = await jubelio.getMerchant();
   } catch (err) {
     merchantError = err instanceof Error ? err.message : 'gagal memuat profil merchant';
   }
@@ -93,10 +93,7 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
   let productsError: string | null = null;
   if (install.scopes.includes('product.read')) {
     try {
-      const page = await jubelio.products.list({
-        page: 1,
-        page_size: 5,
-      });
+      const page = await jubelio.getProducts(1, 5);
       products = page.data;
     } catch (err) {
       productsError = err instanceof Error ? err.message : 'gagal memuat produk';

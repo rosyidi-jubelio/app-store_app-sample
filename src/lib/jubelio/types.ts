@@ -1,7 +1,10 @@
-export type ListParams = {
-  page?: number;
-  page_size?: number;
-  q?: string;
+export type TokenSet = {
+  access_token: string;
+  token_type: 'Bearer';
+  expires_in: number;
+  refresh_token?: string;
+  merchant_id: string;
+  scopes: string[];
 };
 
 export type PageMeta = {

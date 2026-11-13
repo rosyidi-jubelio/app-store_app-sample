@@ -33,7 +33,7 @@ App tidak memulai OAuth sendiri (tidak ada `/oauth/authorize`). Alurnya:
 
 1. Merchant klik Install di Jubelio App Store dan menyetujui scope.
 2. Jubelio mengarahkan browser ke redirect URI app dengan `?code=...`. Default-nya `/oauth/callback` di origin `launch_url`, jadi set `launch_url` app di Dev Console ke origin app ini.
-3. `src/app/oauth/callback/route.ts` menukar code ke `POST {JUBELIO_AUTH_URL}/oauth/token` (`application/x-www-form-urlencoded`, `grant_type=authorization_code`). Code hanya hidup 60 detik dan sekali pakai.
+3. `src/app/oauth/callback/route.ts` memanggil `JubelioApi.getToken(code)`, yang menukar code ke `POST {JUBELIO_AUTH_URL}/oauth/token` (`application/x-www-form-urlencoded`, `grant_type=authorization_code`). Code hanya hidup 60 detik dan sekali pakai.
 4. Token disimpan per `merchant_id` di `.data/installs.json`, browser diberi cookie session bertanda tangan, lalu diarahkan ke `/`.
 5. Halaman utama memanggil Open API lewat SDK di bawah.
 
@@ -41,63 +41,53 @@ App tidak memulai OAuth sendiri (tidak ada `/oauth/authorize`). Alurnya:
 
 ## SDK Jubelio Open API
 
-SDK kecil yang ditulis manual di `src/lib/jubelio` (server-only). Isinya hanya beberapa contoh endpoint. Untuk endpoint lain, tambah method baru dengan pola yang sama atau panggil `request()` langsung.
+SDK berupa satu class `JubelioApi` di `src/lib/jubelio/api.ts` (server-only), dengan pola yang sama seperti `lib/<channel>/api.js` di channel service: constructor menerima kredensial dan token, `callAPI()` jadi pusat request, dan tiap endpoint punya method sendiri. Isinya hanya beberapa contoh endpoint.
 
 ```ts
-import { collectAll, JubelioApiError, paginate } from '@/lib/jubelio';
-import { jubelioFor } from '@/lib/jubelio-app';
+import { JubelioApi } from '@/lib/jubelio';
 
-const jubelio = jubelioFor(merchantId);
-
-const merchant = await jubelio.merchant.get();
-
-const { data: products } = await jubelio.products.list({
-  page: 1,
-  page_size: 20,
+const api = new JubelioApi({
+  clientId,
+  clientSecret,
+  merchantId,
+  accessToken,
+  refreshToken,
 });
 
-const product = await jubelio.products.get(101);
+api.onTokenRefreshed = async (tokens) => {
+  await saveTokens(tokens);
+};
 
-const categories = await jubelio.categories.list({
-  q: 'kaos',
-});
-
-const allOrders = await collectAll(
-  paginate((page, page_size) =>
-    jubelio.orders.list({
-      page,
-      page_size,
-    }),
-  ),
-);
-
-const regions = await jubelio.request('GET', '/regions');
+const merchant = await api.getMerchant();
+const { data: products } = await api.getProducts(1, 20);
+const product = await api.getProduct(101);
+const { data: categories } = await api.getCategories(1, 20, 'kaos');
+const { data: orders } = await api.getOrders(1, 20);
 ```
 
-| Method | Endpoint | Scope |
-| ------ | -------- | ----- |
-| `merchant.get()` | `GET /merchant` | - |
-| `products.list(params)` | `GET /catalog/products` | `product.read` |
-| `products.get(id)` | `GET /catalog/products/{product_id}` | `product.read` |
-| `categories.list(params)` | `GET /catalog/categories` | `category.read` |
-| `orders.list(params)` | `GET /orders` | - |
-| `request(method, path, { query, body })` | Endpoint apa pun | Sesuai endpoint |
+| Method | Endpoint |
+| ------ | -------- |
+| `getToken(code)` | `POST /oauth/token`, `grant_type=authorization_code` |
+| `refreshToken()` | `POST /oauth/token`, `grant_type=refresh_token` |
+| `getMerchant()` | `GET /merchant` |
+| `getProducts(page, pageSize, q)` | `GET /catalog/products` |
+| `getProduct(productId)` | `GET /catalog/products/{product_id}` |
+| `getCategories(page, pageSize, q)` | `GET /catalog/categories` |
+| `getOrders(page, pageSize, q)` | `GET /orders` |
+| `callAPI(method, path, query, body)` | Endpoint lain |
 
-Yang diurus SDK:
+Perilaku `callAPI()`:
 
-- `Authorization: Bearer` dan `x-jbl-merchant-id` dipasang di tiap request.
-- Access token (6 jam) di-refresh 5 menit sebelum habis. Kalau API tetap menjawab `401`, SDK refresh paksa lalu mengulang request sekali.
-- Response sukses dibuka dari envelope Open API. Response gagal dilempar sebagai `JubelioApiError` (`status`, `code`, `requestId`, `isMissingScope`).
-- `paginate()` membaca halaman berikutnya sampai halaman yang kembali lebih sedikit dari `page_size`.
+- Memasang `Authorization: Bearer` dan `x-jbl-merchant-id` di tiap request.
+- Kalau API menjawab `401`, memanggil `refreshToken()` sekali lalu mengulang request dengan token baru.
+- Membuka envelope Open API. Response gagal dilempar sebagai `JubelioApiError` (`status`, `code`, `requestId`, `isMissingScope`).
 
-| File | Isi |
-| ---- | --- |
-| `src/lib/jubelio/client.ts` | `createJubelioClient()` dan method per endpoint |
-| `src/lib/jubelio/types.ts` | Tipe response yang dipakai |
-| `src/lib/jubelio/oauth.ts` | `createOAuthClient()`: tukar code dan refresh token |
-| `src/lib/jubelio/errors.ts` | `JubelioApiError` |
-| `src/lib/jubelio/paginate.ts` | `paginate()`, `collectAll()` |
-| `src/lib/jubelio-app.ts` | Penghubung SDK dengan config dan penyimpanan token app ini |
+Hook yang bisa ditimpa, sama seperti `onTokenRefreshed` di channel service:
+
+- `onTokenRefreshed(tokens)`: dipanggil setelah refresh berhasil. Simpan token baru di sini, karena refresh token ikut berganti.
+- `onRefreshTokenExpired()`: dipanggil kalau refresh token ditolak (`invalid_grant`), misalnya app sudah di-uninstall.
+
+`src/lib/jubelio-app.ts` berisi `newJubelioApi()` untuk tukar code dan `jubelioFor(merchantId)` yang membuat instance dari token tersimpan.
 
 ## Komponen UI
 
