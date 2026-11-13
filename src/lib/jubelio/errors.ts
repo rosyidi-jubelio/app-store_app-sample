@@ -24,3 +24,10 @@ export class OAuthError extends Error {
     this.name = 'OAuthError';
   }
 }
+
+export class SessionTokenError extends Error {
+  constructor(readonly reason: string) {
+    super(`invalid session token: ${reason}`);
+    this.name = 'SessionTokenError';
+  }
+}

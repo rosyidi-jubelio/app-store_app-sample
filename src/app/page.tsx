@@ -1,14 +1,16 @@
 import Image from 'next/image';
 import { Suspense } from 'react';
 
-import { signOut } from '@/app/actions';
+import { redirect } from 'next/navigation';
+
+import { SessionRecovery } from '@/app/session-recovery';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { config } from '@/lib/config';
 import { getInstall } from '@/lib/install-store';
 import type { MerchantProfile, ProductSummary } from '@/lib/jubelio';
 import { jubelioFor } from '@/lib/jubelio-app';
-import { getSessionMerchantId } from '@/lib/session';
+import { getSession } from '@/lib/session';
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_code: 'Jubelio tidak mengirim authorization code ke callback.',
@@ -17,6 +19,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_client: 'JUBELIO_CLIENT_ID atau JUBELIO_CLIENT_SECRET tidak cocok.',
   invalid_request: 'Request ke token endpoint tidak lengkap.',
   server_error: 'Token endpoint Jubelio tidak bisa dihubungi.',
+  missing_session_token: 'Launch URL dibuka tanpa session_token.',
+  invalid_session_token: 'Session token tidak valid atau sudah kedaluwarsa (2 menit). Buka app lagi dari Jubelio.',
+  session_token_reused: 'Session token ini sudah pernah dipakai. Buka app lagi dari Jubelio.',
+  not_installed: 'App belum selesai terpasang untuk merchant ini: authorization code belum pernah ditukar.',
 };
 
 export default function Home({ searchParams }: PageProps<'/'>) {
@@ -55,30 +61,42 @@ function Panel({ children }: { children: React.ReactNode }) {
 }
 
 async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>) {
-  const { error } = await searchParams;
-  const errorCode = typeof error === 'string' ? error : null;
-  const merchantId = await getSessionMerchantId();
-  const install = merchantId ? await getInstall(merchantId) : null;
+  const params = await searchParams;
+  if (typeof params.session_token === 'string') {
+    redirect(`/launch?session_token=${encodeURIComponent(params.session_token)}`);
+  }
+  const errorCode = typeof params.error === 'string' ? params.error : null;
+  const justInstalled = params.installed === '1';
 
-  if (!merchantId || !install) {
+  const session = await getSession();
+  const install = session ? await getInstall(session.merchantId) : null;
+
+  if (!session || !install) {
     return (
       <Panel>
         {errorCode && (
           <div className="rounded-md border border-[var(--toast-destructive-border)] bg-[var(--toast-destructive-bg)] p-3 text-destructive">
-            <p className="font-semibold">Install gagal ({errorCode})</p>
+            <p className="font-semibold">Gagal ({errorCode})</p>
             <p>{ERROR_MESSAGES[errorCode] ?? 'Terjadi kesalahan saat menghubungkan ke Jubelio.'}</p>
           </div>
         )}
-        <h2 className="text-lg font-semibold">Belum terhubung</h2>
-        <p>
-          App ini tidak memulai OAuth sendiri. Install app dari Jubelio App Store, setujui scope di
-          layar consent, lalu Jubelio mengarahkan browser ke <code>/oauth/callback</code> dengan
-          authorization code.
-        </p>
+        {justInstalled && (
+          <div className="rounded-md border border-[var(--toast-success-border)] bg-[var(--toast-success-bg)] p-3">
+            <p className="font-semibold">Install berhasil</p>
+            <p>Token sudah tersimpan. Buka app dari Jubelio App Store untuk mulai memakainya.</p>
+          </div>
+        )}
+        <h2 className="text-lg font-semibold">Belum ada session</h2>
+        {errorCode || justInstalled ? (
+          <p>Buka app ini dari Jubelio App Store.</p>
+        ) : (
+          <SessionRecovery appStoreOrigin={config.appStoreOrigin} />
+        )}
       </Panel>
     );
   }
 
+  const merchantId = session.merchantId;
   const jubelio = await jubelioFor(merchantId);
 
   let merchant: MerchantProfile | null = null;
@@ -114,6 +132,8 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
       <dl className="grid grid-cols-[160px_1fr] gap-y-2">
         <dt className="text-muted-foreground">Merchant ID</dt>
         <dd className="font-mono">{install.merchantId}</dd>
+        <dt className="text-muted-foreground">User (sub)</dt>
+        <dd className="font-mono">{session.userId}</dd>
         <dt className="text-muted-foreground">Nama perusahaan</dt>
         <dd>{merchant?.company_name ?? '-'}</dd>
         <dt className="text-muted-foreground">Plan</dt>
@@ -162,16 +182,6 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
           </div>
         </>
       )}
-
-      <Separator />
-      <form action={signOut}>
-        <Button
-          type="submit"
-          variant="outline"
-        >
-          Keluar
-        </Button>
-      </form>
     </Panel>
   );
 }

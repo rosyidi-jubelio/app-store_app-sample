@@ -7,6 +7,16 @@ export type TokenSet = {
   scopes: string[];
 };
 
+export type SessionTokenClaims = {
+  iss: string;
+  aud: string | string[];
+  sub: string;
+  merchant_id: string;
+  jti: string;
+  iat: number;
+  exp: number;
+};
+
 export type PageMeta = {
   page: number;
   page_size: number;

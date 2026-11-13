@@ -3,11 +3,10 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { saveTokens } from '@/lib/install-store';
 import { OAuthError } from '@/lib/jubelio';
 import { newJubelioApi } from '@/lib/jubelio-app';
-import { sessionCookie } from '@/lib/session';
 
-function redirectHome(request: NextRequest, error?: string) {
+function redirectHome(request: NextRequest, param: 'installed' | 'error', value: string) {
   const url = new URL('/', request.url);
-  if (error) url.searchParams.set('error', error);
+  url.searchParams.set(param, value);
   const res = NextResponse.redirect(url, 303);
   res.headers.set('Cache-Control', 'no-store');
   res.headers.set('Referrer-Policy', 'no-referrer');
@@ -17,20 +16,18 @@ function redirectHome(request: NextRequest, error?: string) {
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
   if (!code) {
-    return redirectHome(request, 'missing_code');
+    return redirectHome(request, 'error', 'missing_code');
   }
 
   try {
-    const install = await saveTokens(await newJubelioApi().getToken(code));
-    const res = redirectHome(request);
-    res.cookies.set(sessionCookie(install.merchantId));
-    return res;
+    await saveTokens(await newJubelioApi().getToken(code));
+    return redirectHome(request, 'installed', '1');
   } catch (err) {
     if (err instanceof OAuthError) {
       console.error('oauth code exchange failed', err.code, err.description);
-      return redirectHome(request, err.code);
+      return redirectHome(request, 'error', err.code);
     }
     console.error('oauth callback failed', err);
-    return redirectHome(request, 'server_error');
+    return redirectHome(request, 'error', 'server_error');
   }
 }

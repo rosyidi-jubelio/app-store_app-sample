@@ -2,42 +2,58 @@ import 'server-only';
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
+import { connection } from 'next/server';
 
 import { config } from '@/lib/config';
 
+export type AppSession = {
+  merchantId: string;
+  userId: string;
+  expiresAt: number;
+};
+
 const COOKIE_NAME = 'app_session';
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const SESSION_TTL_SECONDS = 60 * 60;
 
 function sign(value: string) {
   return createHmac('sha256', config.sessionSecret).update(value).digest('base64url');
 }
 
-export function sessionCookie(merchantId: string) {
+export function sessionCookie(merchantId: string, userId: string) {
+  const session: AppSession = {
+    merchantId,
+    userId,
+    expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
+  };
+  const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
   return {
     name: COOKIE_NAME,
-    value: `${merchantId}.${sign(merchantId)}`,
+    value: `${payload}.${sign(payload)}`,
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    secure: true,
+    sameSite: 'none' as const,
+    partitioned: true,
     path: '/',
-    maxAge: MAX_AGE_SECONDS,
+    maxAge: SESSION_TTL_SECONDS,
   };
 }
 
-export async function getSessionMerchantId(): Promise<string | null> {
+export async function getSession(): Promise<AppSession | null> {
+  await connection();
   const raw = (await cookies()).get(COOKIE_NAME)?.value;
   if (!raw) return null;
 
-  const [merchantId, signature] = raw.split('.');
-  if (!merchantId || !signature) return null;
+  const [payload, signature] = raw.split('.');
+  if (!payload || !signature) return null;
 
-  const expected = Buffer.from(sign(merchantId));
+  const expected = Buffer.from(sign(payload));
   const actual = Buffer.from(signature);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
 
-  return merchantId;
-}
-
-export async function clearSession() {
-  (await cookies()).delete(COOKIE_NAME);
+  try {
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as AppSession;
+    return session.expiresAt > Date.now() ? session : null;
+  } catch {
+    return null;
+  }
 }

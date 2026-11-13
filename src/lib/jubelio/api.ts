@@ -1,6 +1,8 @@
 import 'server-only';
 
-import { JubelioApiError, OAuthError } from '@/lib/jubelio/errors';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+import { JubelioApiError, OAuthError, SessionTokenError } from '@/lib/jubelio/errors';
 import type {
   CategorySummary,
   MerchantProfile,
@@ -8,6 +10,7 @@ import type {
   Page,
   Product,
   ProductSummary,
+  SessionTokenClaims,
   TokenSet,
 } from '@/lib/jubelio/types';
 
@@ -15,6 +18,8 @@ const AUTH_URL = 'https://open-api-auth.qm-staging-k8s.jubelio.io';
 const API_URL = 'https://poc-open-api.qm-staging-k8s.jubelio.io/openapi/v1';
 const TIMEOUT_MS = 15_000;
 const MERCHANT_ID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{12}$/i;
+const SESSION_TOKEN_ISSUER = 'https://jubelio.com';
+const SESSION_TOKEN_LEEWAY_SECONDS = 10;
 
 type Query = Record<string, string | number | undefined>;
 
@@ -138,6 +143,53 @@ class JubelioApi {
       );
     }
     return payload;
+  }
+
+  verifySessionToken(token: string): SessionTokenClaims {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new SessionTokenError('malformed');
+    }
+    const [headerPart, payloadPart, signaturePart] = parts;
+
+    let header: { alg?: string };
+    let claims: SessionTokenClaims;
+    try {
+      header = JSON.parse(Buffer.from(headerPart, 'base64url').toString('utf8'));
+      claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+    } catch {
+      throw new SessionTokenError('malformed');
+    }
+    if (header.alg !== 'HS256') {
+      throw new SessionTokenError('unexpected alg');
+    }
+
+    const expected = createHmac('sha256', this.clientSecret).update(`${headerPart}.${payloadPart}`).digest();
+    const actual = Buffer.from(signaturePart, 'base64url');
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      throw new SessionTokenError('bad signature');
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof claims.exp !== 'number' || claims.exp + SESSION_TOKEN_LEEWAY_SECONDS < now) {
+      throw new SessionTokenError('expired');
+    }
+    if (typeof claims.iat === 'number' && claims.iat - SESSION_TOKEN_LEEWAY_SECONDS > now) {
+      throw new SessionTokenError('issued in the future');
+    }
+    if (claims.iss !== SESSION_TOKEN_ISSUER) {
+      throw new SessionTokenError('wrong issuer');
+    }
+    const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (!audience.includes(this.clientId)) {
+      throw new SessionTokenError('issued for another app');
+    }
+    if (!claims.sub || !claims.jti || !MERCHANT_ID_PATTERN.test(claims.merchant_id ?? '')) {
+      throw new SessionTokenError('missing sub, jti or merchant_id');
+    }
+
+    claims.merchant_id = claims.merchant_id.toUpperCase();
+    return claims;
   }
 
   getToken(code: string) {

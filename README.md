@@ -23,6 +23,7 @@ Isi `.env.local`:
 | -------- | --- |
 | `JUBELIO_CLIENT_ID` | `client_id` app dari Dev Console |
 | `JUBELIO_CLIENT_SECRET` | `client_secret` app dari Dev Console |
+| `JUBELIO_APP_STORE_ORIGIN` | Origin App Store yang meng-embed app (default `https://app-store.jubelio.com`) |
 | `JUBELIO_AUTH_URL` | Base URL `open-api-auth` (default staging) |
 | `JUBELIO_API_URL` | Base URL Open API gateway (default staging) |
 | `SESSION_SECRET` | String acak untuk menandatangani cookie session |
@@ -32,10 +33,27 @@ Isi `.env.local`:
 App tidak memulai OAuth sendiri (tidak ada `/oauth/authorize`). Alurnya:
 
 1. Merchant klik Install di Jubelio App Store dan menyetujui scope.
-2. Jubelio mengarahkan browser ke redirect URI app dengan `?code=...`. Default-nya `/oauth/callback` di origin `launch_url`, jadi set `launch_url` app di Dev Console ke origin app ini.
+2. Jubelio mengarahkan browser ke redirect URI app dengan `?code=...`. Default-nya `/oauth/callback` di origin `launch_url`, jadi set `launch_url` app di Dev Console ke `https://<host app>/launch`.
 3. `src/app/oauth/callback/route.ts` memanggil `JubelioApi.getToken(code)`, yang menukar code ke `POST {JUBELIO_AUTH_URL}/oauth/token` (`application/x-www-form-urlencoded`, `grant_type=authorization_code`). Code hanya hidup 60 detik dan sekali pakai.
-4. Token disimpan per `merchant_id` di `.data/installs.json`, browser diberi cookie session bertanda tangan, lalu diarahkan ke `/`.
-5. Halaman utama memanggil Open API lewat SDK di bawah.
+4. Token disimpan per `merchant_id` di `.data/installs.json`, lalu browser diarahkan ke `/?installed=1`. Callback tidak membuat session, karena belum diketahui user mana yang akan membuka app.
+
+## Session token (embedded app)
+
+App berjalan di dalam iframe App Store, jadi cookie login Jubelio tidak sampai ke app. App mengenali siapa yang membukanya lewat session token: JWT HS256 yang ditandatangani dengan `client_secret`, berlaku 2 menit, berisi `iss`, `aud`, `sub` (user), `merchant_id`, `jti`, `iat`, dan `exp`. Session token hanya untuk login ke backend app. Panggilan ke Open API tetap memakai access token hasil install.
+
+1. Saat merchant membuka app, App Store me-render iframe di launch URL dengan `?session_token=...`.
+2. `src/app/launch/route.ts` memverifikasi token lewat `JubelioApi.verifySessionToken()`:
+   - Signature HS256 dengan `client_secret`.
+   - `iss` = `https://jubelio.com` dan `aud` = `client_id`.
+   - `exp` dan `iat` dengan toleransi 10 detik.
+   - `jti` yang sudah pernah dipakai ditolak.
+   - Install untuk `merchant_id` itu harus ada.
+3. Kalau valid, app membuat session sendiri (cookie bertanda tangan berisi `merchant_id` dan `sub`, berlaku 1 jam), lalu redirect ke `/` supaya token hilang dari URL. Kalau token datang ke `/`, halaman meneruskannya ke `/launch`.
+4. Kalau session hilang saat app masih terbuka (misalnya setelah reload), `src/app/session-recovery.tsx` mengirim `postMessage` `jubelio.session_token.request` ke parent dengan target origin App Store, hanya menerima balasan dari origin itu (timeout 5 detik), lalu menukar token ke `POST /api/session`.
+
+Cookie session memakai `SameSite=None; Secure; Partitioned`, karena cookie `Lax` tidak terkirim dari dalam iframe lintas situs. Header `Content-Security-Policy: frame-ancestors` hanya mengizinkan app di-embed oleh `JUBELIO_APP_STORE_ORIGIN`.
+
+Daftar `jti` yang sudah dipakai disimpan di memori proses, jadi hanya berlaku untuk satu instance. App produksi dengan beberapa instance perlu menyimpannya di Redis atau database.
 
 `.data/installs.json` hanya untuk contoh. App produksi sebaiknya menyimpan token di database dan mengenkripsinya.
 
@@ -69,6 +87,7 @@ const { data: orders } = await api.getOrders(1, 20);
 | ------ | -------- |
 | `getToken(code)` | `POST /oauth/token`, `grant_type=authorization_code` |
 | `refreshToken()` | `POST /oauth/token`, `grant_type=refresh_token` |
+| `verifySessionToken(token)` | Verifikasi session token di sisi app, tanpa memanggil Jubelio |
 | `getMerchant()` | `GET /merchant` |
 | `getProducts(page, pageSize, q)` | `GET /catalog/products` |
 | `getProduct(productId)` | `GET /catalog/products/{product_id}` |
