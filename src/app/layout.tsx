@@ -13,8 +13,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Jubelio App Sample',
-  description: 'Sample app for the Jubelio App Store',
+  title: 'Jubelio 3rd Party App Sample',
+  description: 'Sample 3rd party app for the Jubelio App Store',
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {

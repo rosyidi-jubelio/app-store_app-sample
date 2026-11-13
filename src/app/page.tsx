@@ -38,7 +38,7 @@ export default function Home({ searchParams }: PageProps<'/'>) {
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-10">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold">Jubelio App Sample</h1>
+          <h1 className="text-2xl font-bold">Jubelio 3rd Party App Sample</h1>
           <p className="text-muted-foreground text-sm">
             Contoh app pihak ketiga yang terhubung ke Jubelio Open API.
           </p>

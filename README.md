@@ -1,4 +1,4 @@
-# Jubelio App Sample
+# Jubelio 3rd Party App Sample
 
 Contoh app pihak ketiga untuk dipublish ke Jubelio App Store.
 
