@@ -1,12 +1,24 @@
 import Image from 'next/image';
+import { Suspense } from 'react';
 
+import { signOut } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getInstall } from '@/lib/install-store';
+import { getMerchant, type MerchantProfile } from '@/lib/jubelio/api';
+import { getSessionMerchantId } from '@/lib/session';
 
-export default function Home() {
+const ERROR_MESSAGES: Record<string, string> = {
+  missing_code: 'Jubelio tidak mengirim authorization code ke callback.',
+  invalid_grant:
+    'Authorization code sudah kedaluwarsa (60 detik), sudah dipakai, atau subscription tidak aktif. Buka app lagi dari Jubelio.',
+  invalid_client: 'JUBELIO_CLIENT_ID atau JUBELIO_CLIENT_SECRET tidak cocok.',
+  invalid_request: 'Request ke token endpoint tidak lengkap.',
+  server_error: 'Token endpoint Jubelio tidak bisa dihubungi.',
+};
+
+export default function Home({ searchParams }: PageProps<'/'>) {
   return (
     <div className="flex flex-1 flex-col bg-[var(--app-surface)]">
       <header className="flex h-16 items-center justify-between border-b bg-background px-6">
@@ -32,34 +44,99 @@ export default function Home() {
           </p>
         </div>
 
-        <section className="flex flex-col gap-6 rounded-lg border bg-card p-6">
-          <Tabs defaultValue="connect">
-            <TabsList>
-              <TabsTrigger value="connect">Koneksi</TabsTrigger>
-              <TabsTrigger value="about">Tentang</TabsTrigger>
-            </TabsList>
-            <TabsContent value="connect">
-              <div className="flex flex-col gap-4 pt-4">
-                <Input
-                  label="Nama toko"
-                  placeholder="Masukkan nama toko"
-                />
-                <Separator />
-                <div className="flex gap-3">
-                  <Button>Hubungkan ke Jubelio</Button>
-                  <Button variant="outline">Batal</Button>
-                </div>
-              </div>
-            </TabsContent>
-            <TabsContent value="about">
-              <p className="pt-4 text-sm">
-                Memakai design system Jubelio Dev Console: token warna, font Nunito Sans, dan
-                komponen shadcn berbasis Base UI.
-              </p>
-            </TabsContent>
-          </Tabs>
-        </section>
+        <Suspense fallback={<Panel>Memuat status koneksi...</Panel>}>
+          <Connection searchParams={searchParams} />
+        </Suspense>
       </main>
     </div>
+  );
+}
+
+function Panel({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border bg-card p-6 text-sm">{children}</section>
+  );
+}
+
+async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>) {
+  const { error } = await searchParams;
+  const errorCode = typeof error === 'string' ? error : null;
+  const merchantId = await getSessionMerchantId();
+  const install = merchantId ? await getInstall(merchantId) : null;
+
+  if (!merchantId || !install) {
+    return (
+      <Panel>
+        {errorCode && (
+          <div className="rounded-md border border-[var(--toast-destructive-border)] bg-[var(--toast-destructive-bg)] p-3 text-destructive">
+            <p className="font-semibold">Install gagal ({errorCode})</p>
+            <p>{ERROR_MESSAGES[errorCode] ?? 'Terjadi kesalahan saat menghubungkan ke Jubelio.'}</p>
+          </div>
+        )}
+        <h2 className="text-lg font-semibold">Belum terhubung</h2>
+        <p>
+          App ini tidak memulai OAuth sendiri. Install app dari Jubelio App Store, setujui scope di
+          layar consent, lalu Jubelio mengarahkan browser ke <code>/oauth/callback</code> dengan
+          authorization code.
+        </p>
+      </Panel>
+    );
+  }
+
+  let merchant: MerchantProfile | null = null;
+  let merchantError: string | null = null;
+  try {
+    merchant = await getMerchant(merchantId);
+  } catch (err) {
+    merchantError = err instanceof Error ? err.message : 'gagal memuat profil merchant';
+  }
+
+  return (
+    <Panel>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Terhubung ke Jubelio</h2>
+        <Badge
+          title={merchant?.subscription?.status ?? 'free'}
+          color="#166534"
+          showDot
+        />
+      </div>
+
+      <dl className="grid grid-cols-[160px_1fr] gap-y-2">
+        <dt className="text-muted-foreground">Merchant ID</dt>
+        <dd className="font-mono">{install.merchantId}</dd>
+        <dt className="text-muted-foreground">Nama perusahaan</dt>
+        <dd>{merchant?.company_name ?? '-'}</dd>
+        <dt className="text-muted-foreground">Plan</dt>
+        <dd>{merchant?.subscription?.plan?.name ?? '-'}</dd>
+        <dt className="text-muted-foreground">Access token berlaku s.d.</dt>
+        <dd>{new Date(install.accessTokenExpiresAt).toLocaleString('id-ID')}</dd>
+        <dt className="text-muted-foreground">Scopes</dt>
+        <dd className="flex flex-wrap gap-1">
+          {install.scopes.length === 0
+            ? '-'
+            : install.scopes.map((scope) => (
+                <code
+                  key={scope}
+                  className="rounded bg-muted px-1.5 py-0.5 text-xs"
+                >
+                  {scope}
+                </code>
+              ))}
+        </dd>
+      </dl>
+
+      {merchantError && <p className="text-destructive">GET /merchant gagal: {merchantError}</p>}
+
+      <Separator />
+      <form action={signOut}>
+        <Button
+          type="submit"
+          variant="outline"
+        >
+          Keluar
+        </Button>
+      </form>
+    </Panel>
   );
 }
