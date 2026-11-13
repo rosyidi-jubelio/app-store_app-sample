@@ -1,8 +1,15 @@
 import 'server-only';
 
-import createClient, { type Middleware } from 'openapi-fetch';
-
-import type { paths } from '@/lib/jubelio/schema';
+import { JubelioApiError } from '@/lib/jubelio/errors';
+import type {
+  CategorySummary,
+  ListParams,
+  MerchantProfile,
+  Order,
+  Page,
+  Product,
+  ProductSummary,
+} from '@/lib/jubelio/types';
 
 export type AccessTokenProvider = (options: { forceRefresh: boolean }) => Promise<string>;
 
@@ -13,38 +20,97 @@ export type JubelioClientOptions = {
   fetch?: typeof fetch;
 };
 
+type RequestOptions = {
+  query?: Record<string, string | number | undefined>;
+  body?: unknown;
+};
+
+type Envelope<T> = {
+  data: T;
+  meta: unknown;
+  error: { code: string; message: string } | null;
+  request_id: string;
+};
+
 export function createJubelioClient(options: JubelioClientOptions) {
   const doFetch = options.fetch ?? fetch;
-  const pending = new WeakMap<Request, Request>();
+  const baseUrl = options.baseUrl.replace(/\/$/, '');
 
-  const auth: Middleware = {
-    async onRequest({ request }) {
-      pending.set(request, request.clone());
-      request.headers.set('Authorization', `Bearer ${await options.getAccessToken({ forceRefresh: false })}`);
-      request.headers.set('x-jbl-merchant-id', options.merchantId);
-      request.headers.set('Accept', 'application/json');
-      return request;
+  async function send(method: string, path: string, init: RequestOptions, forceRefresh: boolean) {
+    const url = new URL(baseUrl + path);
+    for (const [key, value] of Object.entries(init.query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${await options.getAccessToken({ forceRefresh })}`,
+      'x-jbl-merchant-id': options.merchantId,
+      Accept: 'application/json',
+    };
+    if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+
+    return doFetch(url, {
+      method,
+      headers,
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    });
+  }
+
+  async function request<T>(method: string, path: string, init: RequestOptions = {}): Promise<Envelope<T>> {
+    let res = await send(method, path, init, false);
+    if (res.status === 401) {
+      res = await send(method, path, init, true);
+    }
+
+    const payload = (await res.json().catch(() => null)) as Envelope<T> | null;
+    if (!res.ok || !payload || payload.error) {
+      throw new JubelioApiError(
+        res.status,
+        payload?.error?.code ?? 'unknown_error',
+        payload?.error?.message ?? res.statusText,
+        payload?.request_id ?? res.headers.get('x-request-id'),
+      );
+    }
+    return payload;
+  }
+
+  async function list<T>(path: string, params: ListParams = {}): Promise<Page<T>> {
+    const { data, meta } = await request<T[]>('GET', path, { query: params });
+    return { data, meta: meta as Page<T>['meta'] };
+  }
+
+  return {
+    request,
+
+    merchant: {
+      async get() {
+        return (await request<MerchantProfile>('GET', '/merchant')).data;
+      },
     },
-    async onResponse({ request, response }) {
-      const original = pending.get(request);
-      pending.delete(request);
-      if (response.status !== 401 || !original) {
-        return response;
-      }
-      original.headers.set('Authorization', `Bearer ${await options.getAccessToken({ forceRefresh: true })}`);
-      original.headers.set('x-jbl-merchant-id', options.merchantId);
-      original.headers.set('Accept', 'application/json');
-      return doFetch(original);
+
+    products: {
+      list(params?: ListParams) {
+        return list<ProductSummary>('/catalog/products', params);
+      },
+      async get(productId: number) {
+        return (await request<Product>('GET', `/catalog/products/${productId}`)).data;
+      },
+    },
+
+    categories: {
+      list(params?: ListParams) {
+        return list<CategorySummary>('/catalog/categories', params);
+      },
+    },
+
+    orders: {
+      list(params?: ListParams) {
+        return list<Order>('/orders', params);
+      },
     },
   };
-
-  const client = createClient<paths>({
-    baseUrl: options.baseUrl.replace(/\/$/, ''),
-    fetch: doFetch,
-    cache: 'no-store',
-  });
-  client.use(auth);
-  return client;
 }
 
 export type JubelioClient = ReturnType<typeof createJubelioClient>;

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { getInstall } from '@/lib/install-store';
-import { type JubelioSchemas, unwrap } from '@/lib/jubelio';
+import type { MerchantProfile, ProductSummary } from '@/lib/jubelio';
 import { jubelioFor } from '@/lib/jubelio-app';
 import { getSessionMerchantId } from '@/lib/session';
 
@@ -81,29 +81,23 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
 
   const jubelio = jubelioFor(merchantId);
 
-  let merchant: JubelioSchemas['MerchantProfile'] | null = null;
+  let merchant: MerchantProfile | null = null;
   let merchantError: string | null = null;
   try {
-    merchant = (await unwrap(jubelio.GET('/merchant'))).data ?? null;
+    merchant = await jubelio.merchant.get();
   } catch (err) {
     merchantError = err instanceof Error ? err.message : 'gagal memuat profil merchant';
   }
 
-  let products: JubelioSchemas['ProductSummary'][] | null = null;
+  let products: ProductSummary[] | null = null;
   let productsError: string | null = null;
   if (install.scopes.includes('product.read')) {
     try {
-      const page = await unwrap(
-        jubelio.GET('/catalog/products', {
-          params: {
-            query: {
-              page: 1,
-              page_size: 5,
-            },
-          },
-        }),
-      );
-      products = page.data ?? [];
+      const page = await jubelio.products.list({
+        page: 1,
+        page_size: 5,
+      });
+      products = page.data;
     } catch (err) {
       productsError = err instanceof Error ? err.message : 'gagal memuat produk';
     }

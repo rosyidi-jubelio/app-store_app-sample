@@ -41,74 +41,63 @@ App tidak memulai OAuth sendiri (tidak ada `/oauth/authorize`). Alurnya:
 
 ## SDK Jubelio Open API
 
-SDK ada di `src/lib/jubelio` (server-only). Tipe semua endpoint di-generate dari `openapi/jubelio-open-api.yaml`, salinan kontrak publik Open API.
+SDK kecil yang ditulis manual di `src/lib/jubelio` (server-only). Isinya hanya beberapa contoh endpoint. Untuk endpoint lain, tambah method baru dengan pola yang sama atau panggil `request()` langsung.
 
 ```ts
-import { collectAll, paginate, unwrap, type JubelioSchemas } from '@/lib/jubelio';
+import { collectAll, JubelioApiError, paginate } from '@/lib/jubelio';
 import { jubelioFor } from '@/lib/jubelio-app';
 
 const jubelio = jubelioFor(merchantId);
 
-const merchant = await unwrap(jubelio.GET('/merchant'));
+const merchant = await jubelio.merchant.get();
 
-const page = await unwrap(
-  jubelio.GET('/catalog/products', {
-    params: {
-      query: {
-        page: 1,
-        page_size: 20,
-      },
-    },
-  }),
-);
+const { data: products } = await jubelio.products.list({
+  page: 1,
+  page_size: 20,
+});
 
-const product = await unwrap(
-  jubelio.GET('/catalog/products/{product_id}', {
-    params: {
-      path: {
-        product_id: 101,
-      },
-    },
-  }),
-);
+const product = await jubelio.products.get(101);
 
-const allProducts = await collectAll(
+const categories = await jubelio.categories.list({
+  q: 'kaos',
+});
+
+const allOrders = await collectAll(
   paginate((page, page_size) =>
-    unwrap(
-      jubelio.GET('/catalog/products', {
-        params: {
-          query: {
-            page,
-            page_size,
-          },
-        },
-      }),
-    ),
+    jubelio.orders.list({
+      page,
+      page_size,
+    }),
   ),
 );
+
+const regions = await jubelio.request('GET', '/regions');
 ```
+
+| Method | Endpoint | Scope |
+| ------ | -------- | ----- |
+| `merchant.get()` | `GET /merchant` | - |
+| `products.list(params)` | `GET /catalog/products` | `product.read` |
+| `products.get(id)` | `GET /catalog/products/{product_id}` | `product.read` |
+| `categories.list(params)` | `GET /catalog/categories` | `category.read` |
+| `orders.list(params)` | `GET /orders` | - |
+| `request(method, path, { query, body })` | Endpoint apa pun | Sesuai endpoint |
 
 Yang diurus SDK:
 
-- `Authorization: Bearer` dan `x-jbl-merchant-id` dipasang di tiap request. Header merchant sengaja dibuang dari tipe, jadi tidak perlu diisi manual.
+- `Authorization: Bearer` dan `x-jbl-merchant-id` dipasang di tiap request.
 - Access token (6 jam) di-refresh 5 menit sebelum habis. Kalau API tetap menjawab `401`, SDK refresh paksa lalu mengulang request sekali.
-- `unwrap()` mengembalikan envelope `{ data, meta }` saat sukses, dan melempar `JubelioApiError` (`status`, `code`, `requestId`) saat gagal.
-- `paginate()` membaca halaman berikutnya sampai halaman yang kembali lebih sedikit dari `page_size`, sesuai aturan paging Open API.
+- Response sukses dibuka dari envelope Open API. Response gagal dilempar sebagai `JubelioApiError` (`status`, `code`, `requestId`, `isMissingScope`).
+- `paginate()` membaca halaman berikutnya sampai halaman yang kembali lebih sedikit dari `page_size`.
 
 | File | Isi |
 | ---- | --- |
-| `src/lib/jubelio/client.ts` | `createJubelioClient()`, client `openapi-fetch` dengan middleware auth |
+| `src/lib/jubelio/client.ts` | `createJubelioClient()` dan method per endpoint |
+| `src/lib/jubelio/types.ts` | Tipe response yang dipakai |
 | `src/lib/jubelio/oauth.ts` | `createOAuthClient()`: tukar code dan refresh token |
-| `src/lib/jubelio/errors.ts` | `JubelioApiError`, `unwrap()` |
+| `src/lib/jubelio/errors.ts` | `JubelioApiError` |
 | `src/lib/jubelio/paginate.ts` | `paginate()`, `collectAll()` |
-| `src/lib/jubelio/schema.ts` | Tipe hasil generate, jangan diedit |
 | `src/lib/jubelio-app.ts` | Penghubung SDK dengan config dan penyimpanan token app ini |
-
-Kalau kontrak Open API berubah, salin ulang `openapi.yaml` ke `openapi/jubelio-open-api.yaml` lalu jalankan:
-
-```bash
-pnpm sdk:generate
-```
 
 ## Komponen UI
 
