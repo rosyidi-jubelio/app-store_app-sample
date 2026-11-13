@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { getInstall } from '@/lib/install-store';
-import { getMerchant, type MerchantProfile } from '@/lib/jubelio/api';
+import { type JubelioSchemas, unwrap } from '@/lib/jubelio';
+import { jubelioFor } from '@/lib/jubelio-app';
 import { getSessionMerchantId } from '@/lib/session';
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -24,15 +25,10 @@ export default function Home({ searchParams }: PageProps<'/'>) {
       <header className="flex h-16 items-center justify-between border-b bg-background px-6">
         <Image
           src="/logo.svg"
-          alt="Jubelio"
-          width={144}
-          height={34}
+          alt="Sample App"
+          width={168}
+          height={36}
           priority
-        />
-        <Badge
-          title="Sandbox"
-          color="#4b68ef"
-          showDot
         />
       </header>
 
@@ -40,7 +36,7 @@ export default function Home({ searchParams }: PageProps<'/'>) {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold">Jubelio 3rd Party App Sample</h1>
           <p className="text-muted-foreground text-sm">
-            Contoh app pihak ketiga yang terhubung ke Jubelio Open API.
+            Contoh app pihak ketiga yang terhubung ke Jubelio App Store.
           </p>
         </div>
 
@@ -83,12 +79,34 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
     );
   }
 
-  let merchant: MerchantProfile | null = null;
+  const jubelio = jubelioFor(merchantId);
+
+  let merchant: JubelioSchemas['MerchantProfile'] | null = null;
   let merchantError: string | null = null;
   try {
-    merchant = await getMerchant(merchantId);
+    merchant = (await unwrap(jubelio.GET('/merchant'))).data ?? null;
   } catch (err) {
     merchantError = err instanceof Error ? err.message : 'gagal memuat profil merchant';
+  }
+
+  let products: JubelioSchemas['ProductSummary'][] | null = null;
+  let productsError: string | null = null;
+  if (install.scopes.includes('product.read')) {
+    try {
+      const page = await unwrap(
+        jubelio.GET('/catalog/products', {
+          params: {
+            query: {
+              page: 1,
+              page_size: 5,
+            },
+          },
+        }),
+      );
+      products = page.data ?? [];
+    } catch (err) {
+      productsError = err instanceof Error ? err.message : 'gagal memuat produk';
+    }
   }
 
   return (
@@ -127,6 +145,32 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
       </dl>
 
       {merchantError && <p className="text-destructive">GET /merchant gagal: {merchantError}</p>}
+
+      {(products || productsError) && (
+        <>
+          <Separator />
+          <div className="flex flex-col gap-2">
+            <h3 className="font-semibold">Produk terbaru (GET /catalog/products)</h3>
+            {productsError && <p className="text-destructive">{productsError}</p>}
+            {products?.length === 0 && <p className="text-muted-foreground">Belum ada produk.</p>}
+            {products && products.length > 0 && (
+              <ul className="divide-y rounded-md border">
+                {products.map((product) => (
+                  <li
+                    key={product.product_id}
+                    className="flex justify-between px-3 py-2"
+                  >
+                    <span>{product.product_name}</span>
+                    <span className="text-muted-foreground">
+                      {product.sell_price != null ? `Rp${product.sell_price.toLocaleString('id-ID')}` : '-'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
 
       <Separator />
       <form action={signOut}>
