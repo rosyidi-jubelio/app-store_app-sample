@@ -15,6 +15,12 @@ export const config = {
   get clientSecret() {
     return required('JUBELIO_CLIENT_SECRET');
   },
+  get databaseUrl() {
+    return required('DATABASE_URL');
+  },
+  get tokenEncryptionKey() {
+    return required('TOKEN_ENCRYPTION_KEY');
+  },
   get sessionSecret() {
     return required('SESSION_SECRET');
   },

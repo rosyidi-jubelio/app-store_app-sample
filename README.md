@@ -12,8 +12,9 @@ Contoh app pihak ketiga untuk dipublish ke Jubelio App Store.
 ## Menjalankan
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 pnpm install
+pnpm db:migrate
 pnpm dev
 ```
 
@@ -27,6 +28,8 @@ Isi `.env.local`:
 | `JUBELIO_AUTH_URL` | Base URL `open-api-auth` (default staging) |
 | `JUBELIO_API_URL` | Base URL Open API gateway (default staging) |
 | `SESSION_SECRET` | String acak untuk menandatangani cookie session |
+| `DATABASE_URL` | Connection string Postgres. Untuk Supabase pakai connection string Session pooler |
+| `TOKEN_ENCRYPTION_KEY` | 32 byte acak, base64 (`openssl rand -base64 32`), untuk mengenkripsi token di DB |
 
 ## OAuth install flow
 
@@ -35,7 +38,7 @@ App tidak memulai OAuth sendiri (tidak ada `/oauth/authorize`). Alurnya:
 1. Merchant klik Install di Jubelio App Store dan menyetujui scope.
 2. Jubelio mengarahkan browser ke redirect URI app dengan `?code=...`. Default-nya `/oauth/callback` di origin `launch_url`, jadi set `launch_url` app di Dev Console ke `https://<host app>/launch`.
 3. `src/app/oauth/callback/route.ts` memanggil `JubelioApi.getToken(code)`, yang menukar code ke `POST {JUBELIO_AUTH_URL}/oauth/token` (`application/x-www-form-urlencoded`, `grant_type=authorization_code`). Code hanya hidup 60 detik dan sekali pakai.
-4. Token disimpan per `merchant_id` di `.data/installs.json`, lalu browser diarahkan ke `/?installed=1`. Callback tidak membuat session, karena belum diketahui user mana yang akan membuka app.
+4. Token disimpan per `merchant_id` di tabel `installs`, lalu browser diarahkan ke `/?installed=1`. Callback tidak membuat session, karena belum diketahui user mana yang akan membuka app.
 
 ## Session token (embedded app)
 
@@ -53,9 +56,20 @@ App berjalan di dalam iframe App Store, jadi cookie login Jubelio tidak sampai k
 
 Cookie session memakai `SameSite=None; Secure; Partitioned`, karena cookie `Lax` tidak terkirim dari dalam iframe lintas situs. Header `Content-Security-Policy: frame-ancestors` hanya mengizinkan app di-embed oleh `JUBELIO_APP_STORE_ORIGIN`.
 
-Daftar `jti` yang sudah dipakai disimpan di memori proses, jadi hanya berlaku untuk satu instance. App produksi dengan beberapa instance perlu menyimpannya di Redis atau database.
+`jti` yang sudah dipakai dicatat di tabel `used_session_tokens`, jadi penolakan token yang dipakai ulang tetap berlaku walaupun app jalan di beberapa instance.
 
-`.data/installs.json` hanya untuk contoh. App produksi sebaiknya menyimpan token di database dan mengenkripsinya.
+## Database
+
+Schema ada di `db/schema.sql`: Postgres biasa, tanpa fitur khusus Supabase. App terhubung lewat driver `postgres` dengan `DATABASE_URL`, jadi pindah dari Supabase ke Postgres sendiri cukup dengan mengganti `DATABASE_URL` lalu menjalankan `pnpm db:migrate`.
+
+| Tabel | Isi |
+| ----- | --- |
+| `installs` | Satu baris per merchant: access token dan refresh token (terenkripsi AES-256-GCM), waktu kedaluwarsa access token, scopes |
+| `used_session_tokens` | `jti` session token yang sudah dipakai, dengan `expires_at`. Baris yang kedaluwarsa dihapus otomatis saat login berikutnya |
+
+Kedua tabel memakai row level security tanpa policy, jadi tidak bisa dibaca lewat API publik Supabase. App mengaksesnya langsung lewat koneksi Postgres.
+
+`pnpm db:migrate` aman dijalankan berulang (`create table if not exists`). App produksi sebaiknya menyimpan token di database dan mengenkripsinya.
 
 ## SDK Jubelio Open API
 
