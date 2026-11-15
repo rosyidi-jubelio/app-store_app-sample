@@ -59,7 +59,24 @@ Cookie session memakai `SameSite=None; Secure; Partitioned`, karena cookie `Lax`
 
 ## Database
 
-Schema ada di `db/schema.sql`: Postgres biasa, tanpa fitur khusus Supabase. App terhubung lewat driver `postgres` dengan `DATABASE_URL`, jadi pindah dari Supabase ke Postgres sendiri cukup dengan mengganti `DATABASE_URL` lalu menjalankan `pnpm db:migrate`.
+Schema ada di `db/schema.sql`: Postgres biasa, tanpa fitur khusus Supabase. Pindah dari Supabase ke Postgres sendiri cukup dengan mengganti `DATABASE_URL` lalu menjalankan `pnpm db:migrate`.
+
+Query ditulis sebagai raw SQL dengan parameter `$1`, `$2`, dan seterusnya (lihat `src/lib/install-store.ts`), lewat interface kecil `Db` di `src/lib/db/types.ts`:
+
+```ts
+interface Db {
+  query<T>(text: string, params?: unknown[]): Promise<T[]>;
+  execute(text: string, params?: unknown[]): Promise<number>;
+}
+```
+
+| File | Isi |
+| ---- | --- |
+| `src/lib/db/types.ts` | Interface `Db` |
+| `src/lib/db/pg.ts` | Implementasi dengan `pg` (node-postgres) |
+| `src/lib/db/index.ts` | `db()`: memilih implementasi yang dipakai app |
+
+Untuk ganti client, buat file baru yang mengembalikan `Db` (misalnya `src/lib/db/neon.ts`), lalu ganti `createPgDb` di `src/lib/db/index.ts`. Query di app tidak perlu diubah.
 
 | Tabel | Isi |
 | ----- | --- |
