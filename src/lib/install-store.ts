@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { decrypt, encrypt } from '@/lib/crypto';
 import { db } from '@/lib/db';
 import type { TokenSet } from '@/lib/jubelio';
 
@@ -16,9 +15,9 @@ export type Install = {
 
 type InstallRow = {
   merchant_id: string;
-  access_token_enc: string;
+  access_token: string;
   access_token_expires_at: Date;
-  refresh_token_enc: string | null;
+  refresh_token: string | null;
   scopes: string[];
   installed_at: Date;
   updated_at: Date;
@@ -27,9 +26,9 @@ type InstallRow = {
 function toInstall(row: InstallRow): Install {
   return {
     merchantId: row.merchant_id,
-    accessToken: decrypt(row.access_token_enc),
+    accessToken: row.access_token,
     accessTokenExpiresAt: row.access_token_expires_at.getTime(),
-    refreshToken: row.refresh_token_enc ? decrypt(row.refresh_token_enc) : null,
+    refreshToken: row.refresh_token,
     scopes: row.scopes,
     installedAt: row.installed_at.getTime(),
     updatedAt: row.updated_at.getTime(),
@@ -40,9 +39,9 @@ export async function getInstall(merchantId: string): Promise<Install | null> {
   const [row] = await db()<InstallRow[]>`
     select
       merchant_id,
-      access_token_enc,
+      access_token,
       access_token_expires_at,
-      refresh_token_enc,
+      refresh_token,
       scopes,
       installed_at,
       updated_at
@@ -54,32 +53,31 @@ export async function getInstall(merchantId: string): Promise<Install | null> {
 
 export async function saveTokens(set: TokenSet): Promise<Install> {
   const expiresAt = new Date(Date.now() + set.expires_in * 1000);
-  const refreshTokenEnc = set.refresh_token ? encrypt(set.refresh_token) : null;
   const [row] = await db()<InstallRow[]>`
     insert into installs (
       merchant_id,
-      access_token_enc,
+      access_token,
       access_token_expires_at,
-      refresh_token_enc,
+      refresh_token,
       scopes
     ) values (
       ${set.merchant_id},
-      ${encrypt(set.access_token)},
+      ${set.access_token},
       ${expiresAt},
-      ${refreshTokenEnc},
+      ${set.refresh_token ?? null},
       ${set.scopes ?? []}
     )
     on conflict (merchant_id) do update set
-      access_token_enc = excluded.access_token_enc,
+      access_token = excluded.access_token,
       access_token_expires_at = excluded.access_token_expires_at,
-      refresh_token_enc = coalesce(excluded.refresh_token_enc, installs.refresh_token_enc),
+      refresh_token = coalesce(excluded.refresh_token, installs.refresh_token),
       scopes = excluded.scopes,
       updated_at = now()
     returning
       merchant_id,
-      access_token_enc,
+      access_token,
       access_token_expires_at,
-      refresh_token_enc,
+      refresh_token,
       scopes,
       installed_at,
       updated_at

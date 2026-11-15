@@ -1,8 +1,8 @@
 create table if not exists installs (
   merchant_id text primary key,
-  access_token_enc text not null,
+  access_token text not null,
   access_token_expires_at timestamptz not null,
-  refresh_token_enc text,
+  refresh_token text,
   scopes text[] not null default '{}',
   installed_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

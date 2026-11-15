@@ -18,9 +18,6 @@ export const config = {
   get databaseUrl() {
     return required('DATABASE_URL');
   },
-  get tokenEncryptionKey() {
-    return required('TOKEN_ENCRYPTION_KEY');
-  },
   get sessionSecret() {
     return required('SESSION_SECRET');
   },

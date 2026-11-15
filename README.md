@@ -29,7 +29,6 @@ Isi `.env.local`:
 | `JUBELIO_API_URL` | Base URL Open API gateway (default staging) |
 | `SESSION_SECRET` | String acak untuk menandatangani cookie session |
 | `DATABASE_URL` | Connection string Postgres. Untuk Supabase pakai connection string Session pooler |
-| `TOKEN_ENCRYPTION_KEY` | 32 byte acak, base64 (`openssl rand -base64 32`), untuk mengenkripsi token di DB |
 
 ## OAuth install flow
 
@@ -64,7 +63,7 @@ Schema ada di `db/schema.sql`: Postgres biasa, tanpa fitur khusus Supabase. App 
 
 | Tabel | Isi |
 | ----- | --- |
-| `installs` | Satu baris per merchant: access token dan refresh token (terenkripsi AES-256-GCM), waktu kedaluwarsa access token, scopes |
+| `installs` | Satu baris per merchant: access token, refresh token, waktu kedaluwarsa access token, scopes |
 | `used_session_tokens` | `jti` session token yang sudah dipakai, dengan `expires_at`. Baris yang kedaluwarsa dihapus otomatis saat login berikutnya |
 
 Kedua tabel memakai row level security tanpa policy, jadi tidak bisa dibaca lewat API publik Supabase. App mengaksesnya langsung lewat koneksi Postgres.
