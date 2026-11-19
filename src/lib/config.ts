@@ -1,7 +1,11 @@
 import 'server-only';
 
+function optional(name: string, fallback: string): string {
+  return process.env[name]?.trim() || fallback;
+}
+
 function required(name: string): string {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is not set`);
   }
@@ -21,9 +25,9 @@ export const config = {
   get sessionSecret() {
     return required('SESSION_SECRET');
   },
-  authUrl: process.env.JUBELIO_AUTH_URL ?? 'https://open-api-auth.qm-staging-k8s.jubelio.io',
-  appStoreOrigins: (process.env.JUBELIO_APP_STORE_ORIGIN ?? 'https://app-store.jubelio.com')
+  authUrl: optional('JUBELIO_AUTH_URL', 'https://open-api-auth.qm-staging-k8s.jubelio.io'),
+  appStoreOrigins: optional('JUBELIO_APP_STORE_ORIGIN', 'https://app-store.jubelio.com')
     .split(/[\s,]+/)
     .filter(Boolean),
-  apiUrl: process.env.JUBELIO_API_URL ?? 'https://poc-open-api.qm-staging-k8s.jubelio.io/openapi/v1',
+  apiUrl: optional('JUBELIO_API_URL', 'https://poc-open-api.qm-staging-k8s.jubelio.io/openapi/v1'),
 };
