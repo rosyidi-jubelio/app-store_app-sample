@@ -24,7 +24,7 @@ Isi `.env.local`:
 | -------- | --- |
 | `JUBELIO_CLIENT_ID` | `client_id` app dari Dev Console |
 | `JUBELIO_CLIENT_SECRET` | `client_secret` app dari Dev Console |
-| `JUBELIO_APP_STORE_ORIGIN` | Origin App Store yang meng-embed app (default `https://app-store.jubelio.com`) |
+| `JUBELIO_APP_STORE_ORIGIN` | Origin App Store yang boleh meng-embed app, bisa lebih dari satu dipisah spasi dan boleh wildcard subdomain, mis. `https://app-store.jubelio.com https://*.jubelio.io http://localhost:3300` (default `https://app-store.jubelio.com`) |
 | `JUBELIO_AUTH_URL` | Base URL `open-api-auth` (default staging) |
 | `JUBELIO_API_URL` | Base URL Open API gateway (default staging) |
 | `SESSION_SECRET` | String acak untuk menandatangani cookie session |
@@ -51,9 +51,9 @@ App berjalan di dalam iframe App Store, jadi cookie login Jubelio tidak sampai k
    - `jti` yang sudah pernah dipakai ditolak.
    - Install untuk `merchant_id` itu harus ada.
 3. Kalau valid, app membuat session sendiri (cookie bertanda tangan berisi `merchant_id` dan `sub`, berlaku 1 jam), lalu redirect ke `/` supaya token hilang dari URL. Kalau token datang ke `/`, halaman meneruskannya ke `/launch`.
-4. Kalau session hilang saat app masih terbuka (misalnya setelah reload), `src/app/session-recovery.tsx` mengirim `postMessage` `jubelio.session_token.request` ke parent dengan target origin App Store, hanya menerima balasan dari origin itu (timeout 5 detik), lalu menukar token ke `POST /api/session`.
+4. Kalau session hilang saat app masih terbuka (misalnya setelah reload), `src/app/session-recovery.tsx` mengirim `postMessage` `jubelio.session_token.request` ke parent dengan target origin parent yang sebenarnya (dari `location.ancestorOrigins`, atau `document.referrer` sebagai cadangan) asalkan origin itu ada di `JUBELIO_APP_STORE_ORIGIN`, hanya menerima balasan dari origin itu (timeout 5 detik), lalu menukar token ke `POST /api/session`.
 
-Cookie session memakai `SameSite=None; Secure; Partitioned`, karena cookie `Lax` tidak terkirim dari dalam iframe lintas situs. Header `Content-Security-Policy: frame-ancestors` hanya mengizinkan app di-embed oleh `JUBELIO_APP_STORE_ORIGIN`.
+Cookie session memakai `SameSite=None; Secure; Partitioned`, karena cookie `Lax` tidak terkirim dari dalam iframe lintas situs. Header `Content-Security-Policy: frame-ancestors` hanya mengizinkan app di-embed oleh origin yang ada di `JUBELIO_APP_STORE_ORIGIN`.
 
 `jti` yang sudah dipakai dicatat di tabel `used_session_tokens`, jadi penolakan token yang dipakai ulang tetap berlaku walaupun app jalan di beberapa instance.
 

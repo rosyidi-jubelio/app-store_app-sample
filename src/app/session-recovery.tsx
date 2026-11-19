@@ -7,10 +7,35 @@ const REQUEST_TIMEOUT_MS = 5000;
 
 type Status = 'checking' | 'standalone' | 'failed';
 
-function requestSessionToken(appStoreOrigin: string): Promise<string> {
+function parentOrigin(): string | null {
+  const ancestor = window.location.ancestorOrigins?.[0];
+  if (ancestor) return ancestor;
+  try {
+    return new URL(document.referrer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedOrigin(origin: string, allowed: string[]): boolean {
+  const url = new URL(origin);
+  return allowed.some((pattern) => {
+    if (!pattern.includes('://*.')) return pattern === origin;
+    const [scheme, host] = pattern.split('://*.');
+    return url.protocol === `${scheme}:` && url.hostname.endsWith(`.${host}`);
+  });
+}
+
+function requestSessionToken(appStoreOrigins: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     if (window.parent === window) {
       reject(new Error('standalone'));
+      return;
+    }
+
+    const appStoreOrigin = parentOrigin();
+    if (!appStoreOrigin || !isAllowedOrigin(appStoreOrigin, appStoreOrigins)) {
+      reject(new Error('unknown_parent'));
       return;
     }
 
@@ -39,14 +64,14 @@ function requestSessionToken(appStoreOrigin: string): Promise<string> {
   });
 }
 
-export function SessionRecovery({ appStoreOrigin }: { appStoreOrigin: string }) {
+export function SessionRecovery({ appStoreOrigins }: { appStoreOrigins: string[] }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>('checking');
   const [reason, setReason] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    requestSessionToken(appStoreOrigin)
+    requestSessionToken(appStoreOrigins)
       .then((sessionToken) => {
         if (cancelled) return null;
         return fetch('/api/session', {
@@ -72,7 +97,7 @@ export function SessionRecovery({ appStoreOrigin }: { appStoreOrigin: string }) 
     return () => {
       cancelled = true;
     };
-  }, [appStoreOrigin, router]);
+  }, [appStoreOrigins, router]);
 
   if (status === 'checking') {
     return <p>Meminta session token ke Jubelio App Store...</p>;

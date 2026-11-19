@@ -90,7 +90,7 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
         {errorCode || justInstalled ? (
           <p>Buka app ini dari Jubelio App Store.</p>
         ) : (
-          <SessionRecovery appStoreOrigin={config.appStoreOrigin} />
+          <SessionRecovery appStoreOrigins={config.appStoreOrigins} />
         )}
       </Panel>
     );
