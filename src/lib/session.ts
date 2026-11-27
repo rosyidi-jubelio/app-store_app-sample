@@ -40,6 +40,14 @@ export function sessionCookie(merchantId: string, userId: string) {
 
 export async function getSession(): Promise<AppSession | null> {
   await connection();
+  if (config.devMerchantId) {
+    return {
+      merchantId: config.devMerchantId,
+      userId: 'dev-user',
+      expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
+    };
+  }
+
   const raw = (await cookies()).get(COOKIE_NAME)?.value;
   if (!raw) return null;
 
