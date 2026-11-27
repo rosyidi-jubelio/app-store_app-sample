@@ -30,4 +30,8 @@ export const config = {
     .split(/[\s,]+/)
     .filter(Boolean),
   apiUrl: optional('JUBELIO_API_URL', 'https://poc-open-api.qm-staging-k8s.jubelio.io/openapi/v1'),
+  // Local development only: open the app as this merchant without an App Store session token.
+  get devMerchantId() {
+    return process.env.NODE_ENV === 'production' ? '' : optional('DEV_MERCHANT_ID', '').toUpperCase();
+  },
 };

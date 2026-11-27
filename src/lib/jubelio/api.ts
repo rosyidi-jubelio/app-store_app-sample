@@ -4,14 +4,63 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { JubelioApiError, OAuthError, SessionTokenError } from '@/lib/jubelio/errors';
 import type {
+  Account,
+  AccountCategory,
+  AccountSummary,
+  Asset,
+  AssetDepreciation,
+  AssetSummary,
+  AttributeMapping,
+  AttributeOption,
+  Bill,
+  BillSummary,
+  CashBankTransaction,
+  CashBankTransactionSummary,
+  Category,
+  CategoryMappingItem,
   CategorySummary,
+  ChannelCategoryDetail,
+  ContactDetail,
+  ContactSummary,
+  CustomerPayment,
+  CustomerPaymentSummary,
+  Invoice,
+  InvoiceCogs,
+  InvoiceSummary,
+  Journal,
+  JournalInput,
+  JournalSummary,
+  LocationDetail,
+  Location,
   MerchantProfile,
+  OfflinePrice,
+  OnlinePrice,
   Order,
   Page,
+  PriceAdjustment,
+  PriceAdjustmentItem,
+  PriceSyncFailure,
   Product,
   ProductSummary,
+  PromotionPrice,
+  PurchaseOrder,
+  PurchaseOrderSummary,
+  PurchaseReturn,
+  PurchaseReturnSummary,
+  Region,
+  RegionLevel,
+  SalesOrder,
+  SalesOrderEscrow,
+  SalesOrderSummary,
+  SalesReturn,
+  SalesReturnSummary,
   SessionTokenClaims,
+  SupplierPayment,
+  SupplierPaymentSummary,
+  Tax,
   TokenSet,
+  VariationMapping,
+  VariationOption,
 } from '@/lib/jubelio/types';
 
 const AUTH_URL = 'https://open-api-auth.qm-staging-k8s.jubelio.io';
@@ -103,7 +152,13 @@ class JubelioApi {
     return tokens;
   }
 
-  async callAPI<T>(method: string, path: string, query: Query = {}, body: unknown = null, retry = 0): Promise<Envelope<T>> {
+  async callAPI<T>(
+    method: string,
+    path: string,
+    query: Query = {},
+    body: unknown = null,
+    retry = 0,
+  ): Promise<Envelope<T>> {
     if (!this.accessToken || !this.merchantId) {
       throw new Error('JubelioApi needs accessToken and merchantId before calling the API');
     }
@@ -119,7 +174,6 @@ class JubelioApi {
       Accept: 'application/json',
     };
     if (body !== null) headers['Content-Type'] = 'application/json';
-
     const res = await fetch(url, {
       method,
       headers,
@@ -218,38 +272,289 @@ class JubelioApi {
     }
   }
 
+  async getList<T>(path: string, page = 1, pageSize = 20, query: Query = {}): Promise<Page<T>> {
+    const res = await this.callAPI<T[]>('GET', path, {
+      page,
+      page_size: pageSize,
+      ...query,
+    });
+    return {
+      data: res.data,
+      meta: res.meta as Page<T>['meta'],
+    };
+  }
+
+  async getOne<T>(path: string, query: Query = {}): Promise<T> {
+    const res = await this.callAPI<T>('GET', path, query);
+    return res.data;
+  }
+
+  // ── Merchant Info ──
+
   async getMerchant() {
     const res = await this.callAPI<MerchantProfile>('GET', '/merchant');
     return res.data;
   }
 
-  async getProducts(page = 1, pageSize = 20, q?: string): Promise<Page<ProductSummary>> {
-    const res = await this.callAPI<ProductSummary[]>('GET', '/catalog/products', {
-      page,
-      page_size: pageSize,
-      q,
-    });
-    return {
-      data: res.data,
-      meta: res.meta as Page<ProductSummary>['meta'],
-    };
+  // ── Catalog: Categories ──
+
+  getCategories(page = 1, pageSize = 20, q?: string) {
+    return this.getList<CategorySummary>('/catalog/categories', page, pageSize, { q });
   }
 
-  async getProduct(productId: number) {
-    const res = await this.callAPI<Product>('GET', `/catalog/products/${productId}`);
+  getCategory(categoryId: number) {
+    return this.getOne<Category>(`/catalog/categories/${categoryId}`);
+  }
+
+  /** `categoryId` 0 returns the root categories. */
+  getCategoryChildren(categoryId: number) {
+    return this.getOne<Category[]>(`/catalog/categories/${categoryId}/children`);
+  }
+
+  getCategoryAncestors(categoryId: number) {
+    return this.getOne<Category[]>(`/catalog/categories/${categoryId}/ancestors`);
+  }
+
+  // ── Catalog: Category Mappings ──
+
+  getCategoryMappings(page = 1, pageSize = 20, q?: string) {
+    return this.getList<CategoryMappingItem>('/catalog/categories/mappings', page, pageSize, { q });
+  }
+
+  getAttributeMappings(categoryId: number, channelId: number, page = 1, pageSize = 20) {
+    return this.getList<AttributeMapping>(
+      `/catalog/categories/${categoryId}/mappings/${channelId}/attributes`,
+      page,
+      pageSize,
+    );
+  }
+
+  getAttributeOptions(categoryId: number, channelId: number) {
+    return this.getOne<AttributeOption[]>(`/catalog/categories/${categoryId}/mappings/${channelId}/attribute-options`);
+  }
+
+  getVariationMappings(categoryId: number, channelId: number, page = 1, pageSize = 20) {
+    return this.getList<VariationMapping>(
+      `/catalog/categories/${categoryId}/mappings/${channelId}/variations`,
+      page,
+      pageSize,
+    );
+  }
+
+  getVariationOptions(categoryId: number, channelId: number) {
+    return this.getOne<VariationOption[]>(`/catalog/categories/${categoryId}/mappings/${channelId}/variation-options`);
+  }
+
+  // ── Catalog: Channel Categories ──
+
+  /** `channelCategoryId` "0" returns the channel's root categories in `children`. */
+  getChannelCategory(channelId: number, channelCategoryId: string) {
+    return this.getOne<ChannelCategoryDetail>(
+      `/catalog/categories/channel-categories/${channelId}/${encodeURIComponent(channelCategoryId)}`,
+    );
+  }
+
+  // ── Catalog: Products ──
+
+  getProducts(page = 1, pageSize = 20, q?: string) {
+    return this.getList<ProductSummary>('/catalog/products', page, pageSize, {
+      q,
+    });
+  }
+
+  getProduct(productId: number) {
+    return this.getOne<Product>(`/catalog/products/${productId}`);
+  }
+
+  // ── Catalog: Prices ──
+
+  getOnlinePrices(page = 1, pageSize = 20, q?: string) {
+    return this.getList<OnlinePrice>('/catalog/prices/online', page, pageSize, {
+      q,
+    });
+  }
+
+  getOfflinePrices(page = 1, pageSize = 20, q?: string) {
+    return this.getList<OfflinePrice>('/catalog/prices/offline', page, pageSize, { q });
+  }
+
+  getPromotionPrices(page = 1, pageSize = 20, q?: string) {
+    return this.getList<PromotionPrice>('/catalog/prices/on-promotion', page, pageSize, { q });
+  }
+
+  getPriceSyncFailures(page = 1, pageSize = 20, q?: string) {
+    return this.getList<PriceSyncFailure>('/catalog/prices/sync-failures', page, pageSize, { q });
+  }
+
+  getPriceAdjustments(page = 1, pageSize = 20, type: 'online' | 'offline' = 'online') {
+    return this.getList<PriceAdjustment>('/catalog/prices/adjustments', page, pageSize, { type });
+  }
+
+  getPriceAdjustment(adjustmentId: number) {
+    return this.getOne<PriceAdjustment>(`/catalog/prices/adjustments/${adjustmentId}`);
+  }
+
+  getPriceAdjustmentItems(adjustmentId: number, page = 1, pageSize = 20) {
+    return this.getList<PriceAdjustmentItem>(`/catalog/prices/adjustments/${adjustmentId}/items`, page, pageSize);
+  }
+
+  // ── WMS ──
+
+  getLocations(page = 1, pageSize = 20, q?: string) {
+    return this.getList<Location>('/locations', page, pageSize, { q });
+  }
+
+  getLocation(locationId: number) {
+    return this.getOne<LocationDetail>(`/locations/${locationId}`);
+  }
+
+  // ── Finance ──
+
+  getInvoices(page = 1, pageSize = 20) {
+    return this.getList<InvoiceSummary>('/finance/invoices', page, pageSize);
+  }
+
+  getInvoice(invoiceId: number) {
+    return this.getOne<Invoice>(`/finance/invoices/${invoiceId}`);
+  }
+
+  getInvoiceCogs(invoiceId: number) {
+    return this.getOne<InvoiceCogs>(`/finance/invoices/${invoiceId}/cogs`);
+  }
+
+  getSalesReturns(page = 1, pageSize = 20) {
+    return this.getList<SalesReturnSummary>('/finance/sales-returns', page, pageSize);
+  }
+
+  getSalesReturn(salesReturnId: number) {
+    return this.getOne<SalesReturn>(`/finance/sales-returns/${salesReturnId}`);
+  }
+
+  getBills(page = 1, pageSize = 20) {
+    return this.getList<BillSummary>('/finance/bills', page, pageSize);
+  }
+
+  getBill(billId: number) {
+    return this.getOne<Bill>(`/finance/bills/${billId}`);
+  }
+
+  getPurchaseReturns(page = 1, pageSize = 20) {
+    return this.getList<PurchaseReturnSummary>('/finance/purchase-returns', page, pageSize);
+  }
+
+  getPurchaseReturn(purchaseReturnId: number) {
+    return this.getOne<PurchaseReturn>(`/finance/purchase-returns/${purchaseReturnId}`);
+  }
+
+  getCustomerPayments(page = 1, pageSize = 20) {
+    return this.getList<CustomerPaymentSummary>('/finance/customer-payments', page, pageSize);
+  }
+
+  getCustomerPayment(paymentId: number) {
+    return this.getOne<CustomerPayment>(`/finance/customer-payments/${paymentId}`);
+  }
+
+  getSupplierPayments(page = 1, pageSize = 20) {
+    return this.getList<SupplierPaymentSummary>('/finance/supplier-payments', page, pageSize);
+  }
+
+  getSupplierPayment(paymentId: number) {
+    return this.getOne<SupplierPayment>(`/finance/supplier-payments/${paymentId}`);
+  }
+
+  getCashBankTransactions(page = 1, pageSize = 20) {
+    return this.getList<CashBankTransactionSummary>('/finance/cash-bank-transactions', page, pageSize);
+  }
+
+  getCashBankTransaction(transactionId: number) {
+    return this.getOne<CashBankTransaction>(`/finance/cash-bank-transactions/${transactionId}`);
+  }
+
+  getSupplierContacts(page = 1, pageSize = 20) {
+    return this.getList<ContactSummary>('/finance/supplier-contacts', page, pageSize);
+  }
+
+  getSupplierContact(contactId: number) {
+    return this.getOne<ContactDetail>(`/finance/supplier-contacts/${contactId}`);
+  }
+
+  getCustomerContacts(page = 1, pageSize = 20) {
+    return this.getList<ContactSummary>('/finance/customer-contacts', page, pageSize);
+  }
+
+  getCustomerContact(contactId: number) {
+    return this.getOne<ContactDetail>(`/finance/customer-contacts/${contactId}`);
+  }
+
+  getSalesOrders(page = 1, pageSize = 20) {
+    return this.getList<SalesOrderSummary>('/finance/sales-orders', page, pageSize);
+  }
+
+  getSalesOrder(salesOrderId: number) {
+    return this.getOne<SalesOrder>(`/finance/sales-orders/${salesOrderId}`);
+  }
+
+  getSalesOrderEscrow(salesOrderId: number) {
+    return this.getOne<SalesOrderEscrow>(`/finance/sales-orders/${salesOrderId}/escrow`);
+  }
+
+  getPurchaseOrders(page = 1, pageSize = 20) {
+    return this.getList<PurchaseOrderSummary>('/finance/purchase-orders', page, pageSize);
+  }
+
+  getPurchaseOrder(purchaseOrderId: number) {
+    return this.getOne<PurchaseOrder>(`/finance/purchase-orders/${purchaseOrderId}`);
+  }
+
+  getAssets(page = 1, pageSize = 20) {
+    return this.getList<AssetSummary>('/finance/assets', page, pageSize);
+  }
+
+  getAsset(assetId: number) {
+    return this.getOne<Asset>(`/finance/assets/${assetId}`);
+  }
+
+  getAssetDepreciations(assetId: number, page = 1, pageSize = 20) {
+    return this.getList<AssetDepreciation>(`/finance/assets/${assetId}/depreciations`, page, pageSize);
+  }
+
+  getAccounts(page = 1, pageSize = 20, q?: string) {
+    return this.getList<AccountSummary>('/finance/accounts', page, pageSize, {
+      q,
+    });
+  }
+
+  getAccountCategories(page = 1, pageSize = 20, q?: string) {
+    return this.getList<AccountCategory>('/finance/accounts/categories', page, pageSize, { q });
+  }
+
+  getAccount(accountId: number) {
+    return this.getOne<Account>(`/finance/accounts/${accountId}`);
+  }
+
+  getTaxes(page = 1, pageSize = 20, q?: string) {
+    return this.getList<Tax>('/finance/taxes', page, pageSize, { q });
+  }
+
+  getJournals(page = 1, pageSize = 20) {
+    return this.getList<JournalSummary>('/finance/journals', page, pageSize);
+  }
+
+  getJournal(journalId: number) {
+    return this.getOne<Journal>(`/finance/journals/${journalId}`);
+  }
+
+  /** Needs `finance.journal.create`. Total debit must equal total credit. Returns the journal as stored. */
+  async createJournal(input: JournalInput) {
+    const res = await this.callAPI<Journal>('POST', '/finance/journals', {}, input);
     return res.data;
   }
 
-  async getCategories(page = 1, pageSize = 20, q?: string): Promise<Page<CategorySummary>> {
-    const res = await this.callAPI<CategorySummary[]>('GET', '/catalog/categories', {
-      page,
-      page_size: pageSize,
-      q,
-    });
-    return {
-      data: res.data,
-      meta: res.meta as Page<CategorySummary>['meta'],
-    };
+  // ── Reference ──
+
+  /** `parentId` is required for every level except `province`. */
+  getRegions(level: RegionLevel, parentId?: string) {
+    return this.getOne<Region[]>('/regions', { level, parent_id: parentId });
   }
 
   async getOrders(page = 1, pageSize = 20, q?: string): Promise<Page<Order>> {

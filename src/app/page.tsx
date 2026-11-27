@@ -3,6 +3,8 @@ import { Suspense } from 'react';
 
 import { redirect } from 'next/navigation';
 
+import { ApiResults } from '@/app/api-results';
+import { CreateJournalForm } from '@/app/create-journal-form';
 import { SessionRecovery } from '@/app/session-recovery';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -182,6 +184,12 @@ async function Connection({ searchParams }: Pick<PageProps<'/'>, 'searchParams'>
           </div>
         </>
       )}
+
+      <Separator />
+      <CreateJournalForm />
+
+      <Separator />
+      <ApiResults jubelio={jubelio} />
     </Panel>
   );
 }
